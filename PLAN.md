@@ -77,11 +77,13 @@ A self-contained Python script that:
 - Implements robust error handling (see Error Handling section)
 
 **Key design decisions for the script:**
-- **Primary dependency is the `openai` SDK** — use the official `openai` Python package; add `Pillow` only if format normalization is required after API verification
+- **Primary dependency is the `openai` SDK** — use the official `openai` Python package; Pillow is optional for corrupt-image detection only
 - **Dependency management with `uv`** — use `uv pip install` for fast, reliable package installation in the sandboxed VM
 - **Credential source is not a CLI argument** — the script should read the OpenAI key from an environment variable or a local `.env` file loaded at runtime
 - **Stateless** — no config files, no caching; all parameters passed via CLI args
 - **Stdout for results, stderr for logs** — clean separation so Claude can parse the JSON result
+- **Moderation via `extra_body`** — pass `moderation: "low"` using `extra_body={"moderation": "low"}` because the Python SDK does not expose `moderation` as a direct kwarg
+- **Response format is `b64_json`** — gpt-image-1.5 returns base64 by default; the script decodes and writes to the output path
 
 ### 3. `references/REFERENCE.md` — Extended Documentation
 
@@ -138,27 +140,54 @@ Example input/output pairs to help Claude understand what kinds of edits work we
 ### OpenAI Images Edit API
 
 - **Endpoint**: `POST https://api.openai.com/v1/images/edits`
-- **Model**: `gpt-image-1.5`
+- **Model**: `gpt-image-1.5` (default; also supported: `gpt-image-1`, `gpt-image-1-mini`, `chatgpt-image-latest`)
 - **Input parameters**:
-  - `image`: The source image file
-  - `prompt`: Text description of the desired edit
-  - `model`: Model identifier
-  - `size`: Output size (e.g. `1024x1024`, `auto`)
-  - `quality`: Output quality (e.g. `auto`, `high`)
-- **Response**: Base64-encoded image data or URL
+  - `image`: Source image file (PNG, JPEG, or WebP; max 50 MB; up to 16 images)
+  - `prompt`: Text description of the desired edit (max 32,000 chars)
+  - `model`: Model identifier (default: `gpt-image-1.5`)
+  - `mask`: Optional PNG mask; transparent areas mark edit regions (<4 MB, same dims as input)
+  - `size`: Output size — `"1024x1024"`, `"1536x1024"`, `"1024x1536"`, or `"auto"`
+  - `quality`: `"low"`, `"medium"`, `"high"`, `"auto"` (default: `"auto"`)
+  - `output_format`: `"png"` (default), `"jpeg"`, or `"webp"`
+  - `background`: `"transparent"`, `"opaque"`, or `"auto"` (transparent only works with png/webp output)
+  - `input_fidelity`: `"high"` or `"low"` (default: `"low"`) — controls how closely the output matches input
+  - `output_compression`: 0–100 (only applies to jpeg/webp output)
+  - `n`: Number of images to generate (1–10)
+  - `moderation`: `"auto"` (default) or `"low"` — see Moderation section
+  - `response_format`: `"b64_json"` (default for gpt-image models) or `"url"`
+- **Response**: Base64-encoded image data (`b64_json`) by default for gpt-image-1.5
 - **Authentication**: Bearer token via `Authorization` header
 
 ### Image Format Handling
 
-The current v1 target formats are **PNG, JPEG, and WebP**, because that is what the user wants the skill to accept.
+PNG, JPEG, and WebP are all **natively supported** by `gpt-image-1.5` — no format conversion or Pillow normalization is required.
 
-However, the plan should not assume conversion behavior until the OpenAI `gpt-image-1.5` edit contract is verified.
-
-| Input Format | Current Plan |
+| Input Format | v1 Status |
 |---|---|
-| PNG | Accept in v1 |
-| JPEG | Accept in v1, but verify whether native upload is supported or whether normalization is required |
-| WebP | Accept in v1, but verify whether native upload is supported or whether normalization is required |
+| PNG | Natively supported |
+| JPEG | Natively supported |
+| WebP | Natively supported |
+
+Pillow is **not required** for format normalization. It may still be used for file validation (detecting corrupt images) but is not a required dependency.
+
+### Moderation
+
+The API accepts a `moderation` parameter to control content filtering:
+- `"auto"` — default, standard content filtering
+- `"low"` — less restrictive filtering (use this as the default in the skill)
+
+**Python SDK caveat**: As of the current SDK version, `moderation` is not in the official `images.edit()` method signature. Passing it as a direct keyword argument raises `TypeError`. Use `extra_body` instead:
+
+```python
+client.images.edit(
+    model="gpt-image-1.5",
+    image=open("image.png", "rb"),
+    prompt="your prompt",
+    extra_body={"moderation": "low"}
+)
+```
+
+In raw HTTP, `moderation` is just a standard JSON body field. The `extra_body` workaround is Python-SDK-specific.
 
 ### Model Abstraction
 
@@ -171,8 +200,8 @@ The script uses `gpt-image-1.5` and accepts a `--model` argument for forward com
 
 ### Input Validation (before API call)
 - **File not found**: Clear error message with the attempted path
-- **Unsupported format**: List supported formats and suggest conversion
-- **File too large**: Report size limit and suggest compression once the exact OpenAI edit limits are verified
+- **Unsupported format**: List supported formats (PNG, JPEG, WebP)
+- **File too large**: Report the 50 MB limit and suggest compression
 - **Empty/corrupt image**: Attempt to open with Pillow; report if it fails
 
 ### API Errors (during API call)
@@ -229,7 +258,7 @@ The SKILL.md will instruct Claude on how to interpret these errors and communica
 
 ### Python Dependencies
 - `openai` — Official OpenAI Python SDK for API interaction
-- `Pillow` — Optional; only needed if input normalization or validation requires it after API verification
+- `Pillow` — Optional; only needed if corrupt-image validation is desired (not required for format normalization)
 - Managed via `uv` (fast Python package manager)
 
 ### Dependency Installation
@@ -238,28 +267,34 @@ The SKILL.md will instruct Claude to install dependencies at skill activation:
 uv pip install openai
 ```
 
-If API verification confirms JPEG/WebP normalization is required, update the install command to:
+If corrupt-image detection via Pillow is desired, add it:
 
 ```bash
 uv pip install openai Pillow
 ```
 
-## Proposed Next-Step Decisions
+## Resolved Decisions
 
-Before implementation starts, resolve these decisions:
+The following questions from the original plan have been resolved via API research (March 2026):
 
-1. Verify the exact `gpt-image-1.5` image edit contract, especially supported input formats and whether JPEG/WebP normalization is required.
-2. Define the exact output-file handoff contract in `SKILL.md` so Claude reliably exposes the edited image to the user, preferably as a single PNG file in v1.
-3. Add packaging guidance for `.env.example`, personal-use `.env`, and zip layout.
-4. Keep the initial implementation focused on Claude Web only.
+1. **Input formats**: PNG, JPEG, and WebP are all natively supported by `gpt-image-1.5`. No conversion needed; Pillow is not required for format normalization.
+2. **File size limit**: 50 MB per input image (confirmed).
+3. **Response format**: `b64_json` is the default for gpt-image models. The script decodes base64 and saves to the output path.
+4. **Output file handoff**: The script outputs a single PNG file at `--output-path`. Claude reads and renders it inline.
+5. **Moderation**: Use `moderation: "low"` via `extra_body` in the Python SDK (not a direct kwarg — see Moderation section).
+6. **Pillow dependency**: Not required for v1. May be added optionally for corrupt-image detection.
+
+## Remaining Decisions
+
+1. Add packaging guidance for `.env.example`, personal-use `.env`, and zip layout.
+2. Keep the initial implementation focused on Claude Web only.
 
 ## Implementation Todos
 
-1. **Verify the OpenAI API contract** — Confirm the exact `gpt-image-1.5` image edit request/response behavior, supported input formats, and output handling
-2. **Create SKILL.md** — Write the main skill file with frontmatter and step-by-step instructions for Claude
-3. **Create `scripts/edit_image.py`** — Implement the core Python script for OpenAI API interaction with full error handling and retry logic
-4. **Create `references/REFERENCE.md`** — Write extended documentation covering API details, format constraints, and troubleshooting
-5. **Create `assets/example_prompts.md`** — Compile example edit prompts and describe expected behaviors
-6. **Update `README.md`** — Write repository documentation with setup instructions, usage guide, `.env.example` packaging guidance, and contribution info
-7. **Test on Claude Web** — Package as .zip and upload to Claude Web for manual testing
-8. **Iterate on SKILL.md instructions** — Refine based on testing to improve Claude's reliability in executing the workflow
+1. **Create SKILL.md** — Write the main skill file with frontmatter and step-by-step instructions for Claude
+2. **Create `scripts/edit_image.py`** — Implement the core Python script for OpenAI API interaction with full error handling and retry logic
+3. **Create `references/REFERENCE.md`** — Write extended documentation covering API details, format constraints, and troubleshooting
+4. **Create `assets/example_prompts.md`** — Compile example edit prompts and describe expected behaviors
+5. **Update `README.md`** — Write repository documentation with setup instructions, usage guide, `.env.example` packaging guidance, and contribution info
+6. **Test on Claude Web** — Package as .zip and upload to Claude Web for manual testing
+7. **Iterate on SKILL.md instructions** — Refine based on testing to improve Claude's reliability in executing the workflow

@@ -1,0 +1,238 @@
+"""Claude image editing skill — calls the OpenAI image edit API.
+
+Accepts an input image and a text prompt, sends them to the API,
+and writes the edited image to the specified output path.
+All structured output is printed as JSON to stdout; logs go to stderr.
+"""
+
+import argparse
+import base64
+import binascii
+import json
+import os
+import random
+import sys
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+import openai
+from openai import APIError, APITimeoutError, AuthenticationError, RateLimitError
+
+SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+MAX_RATE_LIMIT_RETRIES = 3
+MAX_SERVER_ERROR_RETRIES = 2
+CLIENT_TIMEOUT = 120.0
+LOG_PREFIX = "[edit_image]"
+
+
+def log(msg: str) -> None:
+    print(f"{LOG_PREFIX} {msg}", file=sys.stderr)
+
+
+def output_success(output_path: str, model_used: str, file_size_bytes: int) -> None:
+    print(json.dumps({
+        "status": "success",
+        "output_path": output_path,
+        "model_used": model_used,
+        "file_size_bytes": file_size_bytes,
+    }, indent=2))
+
+
+def output_error(error: str, error_code: str, retryable: bool) -> None:
+    print(json.dumps({
+        "status": "error",
+        "error": error,
+        "error_code": error_code,
+        "retryable": retryable,
+    }, indent=2))
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Edit an image using the OpenAI image edit API.")
+    parser.add_argument("--image-path", required=True, help="Path to the source image file")
+    parser.add_argument("--prompt", required=True, help="Text description of the desired edit")
+    parser.add_argument("--output-path", required=True, help="Where to save the edited image")
+    parser.add_argument("--model", default="gpt-image-1.5", help="Model identifier")
+    parser.add_argument("--size", default="auto",
+                        choices=["auto", "1024x1024", "1536x1024", "1024x1536"],
+                        help="Output image size")
+    parser.add_argument("--quality", default="auto",
+                        choices=["auto", "low", "medium", "high"],
+                        help="Output image quality")
+    return parser.parse_args()
+
+
+def load_api_key() -> Optional[str]:
+    key = os.environ.get("OPENAI_API_KEY")
+    if key:
+        return key
+
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if env_path.is_file():
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    k, _, v = line.partition("=")
+                    k = k.strip()
+                    v = v.strip().strip("\"'")
+                    if k == "OPENAI_API_KEY" and v:
+                        return v
+    return None
+
+
+def validate_image(image_path: str) -> Optional[dict[str, Any]]:
+    path = Path(image_path)
+
+    if not path.is_file():
+        return {"error": f"File not found: {image_path}", "error_code": "FILE_NOT_FOUND", "retryable": False}
+
+    if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        return {
+            "error": f"Unsupported format '{path.suffix}'. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}",
+            "error_code": "UNSUPPORTED_FORMAT",
+            "retryable": False,
+        }
+
+    file_size = path.stat().st_size
+    if file_size > MAX_FILE_SIZE_BYTES:
+        size_mb = file_size / (1024 * 1024)
+        return {
+            "error": f"File is {size_mb:.1f} MB, exceeds 50 MB limit",
+            "error_code": "FILE_TOO_LARGE",
+            "retryable": False,
+        }
+
+    try:
+        from PIL import Image
+        with Image.open(path) as img:
+            img.verify()
+    except ImportError:
+        pass
+    except Exception as exc:
+        return {"error": f"Image appears corrupt: {exc}", "error_code": "CORRUPT_IMAGE", "retryable": False}
+
+    return None
+
+
+def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
+    rate_limit_attempts = 0
+    server_error_attempts = 0
+
+    while True:
+        try:
+            with open(args.image_path, "rb") as img_file:
+                response = client.images.edit(
+                    model=args.model,
+                    image=img_file,
+                    prompt=args.prompt,
+                    size=args.size,
+                    quality=args.quality,
+                    response_format="b64_json",
+                    # The moderation parameter isn't exposed as a direct kwarg
+                    # in the OpenAI SDK, so we pass it via extra_body.
+                    extra_body={"moderation": "low"},
+                )
+
+            if not response.data:
+                return {"error": "API returned empty data array", "error_code": "API_ERROR", "retryable": True}
+
+            b64_data = response.data[0].b64_json
+            if not b64_data:
+                return {"error": "API returned no image data", "error_code": "API_ERROR", "retryable": True}
+
+            try:
+                image_bytes = base64.b64decode(b64_data)
+            except binascii.Error as exc:
+                return {"error": f"Failed to decode image data: {exc}", "error_code": "API_ERROR", "retryable": False}
+
+            output = Path(args.output_path)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with open(output, "wb") as out_file:
+                out_file.write(image_bytes)
+
+            file_size = output.stat().st_size
+            log(f"Wrote {file_size} bytes to {output}")
+            return {"status": "success", "output_path": str(output), "file_size_bytes": file_size}
+
+        except AuthenticationError:
+            return {"error": "Invalid API key", "error_code": "INVALID_API_KEY", "retryable": False}
+
+        except RateLimitError as exc:
+            rate_limit_attempts += 1
+            if rate_limit_attempts > MAX_RATE_LIMIT_RETRIES:
+                return {"error": f"Rate limited after {MAX_RATE_LIMIT_RETRIES} retries: {exc}",
+                        "error_code": "RATE_LIMITED", "retryable": True}
+            try:
+                retry_after = float(exc.response.headers.get("Retry-After", 0))
+            except (AttributeError, ValueError, TypeError):
+                retry_after = 0.0
+            if retry_after > 0:
+                delay = retry_after
+            else:
+                delay = (2 ** rate_limit_attempts) + random.uniform(0, 1)
+            log(f"Rate limited, retry {rate_limit_attempts}/{MAX_RATE_LIMIT_RETRIES} in {delay:.1f}s")
+            time.sleep(delay)
+
+        except APITimeoutError:
+            return {"error": f"Request timed out after {CLIENT_TIMEOUT:.0f}s", "error_code": "TIMEOUT", "retryable": True}
+
+        except APIError as exc:
+            if exc.status_code and exc.status_code in (500, 502, 503):
+                server_error_attempts += 1
+                if server_error_attempts > MAX_SERVER_ERROR_RETRIES:
+                    return {"error": f"Server error after {MAX_SERVER_ERROR_RETRIES} retries: {exc}",
+                            "error_code": "API_ERROR", "retryable": True}
+                delay = (2 ** server_error_attempts) + random.uniform(0, 1)
+                log(f"Server error {exc.status_code}, retry {server_error_attempts}/{MAX_SERVER_ERROR_RETRIES} in {delay:.1f}s")
+                time.sleep(delay)
+            elif exc.status_code == 400 and "content policy" in str(exc).lower():
+                return {"error": f"Content policy violation: {exc}", "error_code": "CONTENT_POLICY", "retryable": False}
+            elif exc.status_code in (400, 403):
+                return {"error": str(exc), "error_code": "API_ERROR", "retryable": False}
+            else:
+                return {"error": str(exc), "error_code": "API_ERROR", "retryable": True}
+
+
+def main() -> None:
+    args = parse_args()
+
+    api_key = load_api_key()
+    if not api_key:
+        output_error("OPENAI_API_KEY not found in environment or .env file", "INVALID_API_KEY", False)
+        sys.exit(1)
+
+    validation_err = validate_image(args.image_path)
+    if validation_err:
+        output_error(**validation_err)
+        sys.exit(1)
+
+    log(f"Editing image: {args.image_path}")
+    log(f"Prompt: {args.prompt}")
+    log(f"Model: {args.model}, size: {args.size}, quality: {args.quality}")
+
+    client = openai.OpenAI(api_key=api_key, timeout=CLIENT_TIMEOUT)
+
+    try:
+        result = call_api(client, args)
+    except Exception as exc:
+        output_error(f"Unexpected error: {exc}", "UNKNOWN_ERROR", False)
+        sys.exit(1)
+
+    if result.get("status") == "success":
+        output_success(result["output_path"], args.model, result["file_size_bytes"])
+    else:
+        output_error(result["error"], result["error_code"], result["retryable"])
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        log("Interrupted by user")
+        sys.exit(130)
