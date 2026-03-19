@@ -7,8 +7,10 @@ All structured output is printed as JSON to stdout; logs go to stderr.
 
 import argparse
 import base64
+import binascii
 import json
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -21,6 +23,7 @@ SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 MAX_RATE_LIMIT_RETRIES = 3
 MAX_SERVER_ERROR_RETRIES = 2
+CLIENT_TIMEOUT = 120.0
 LOG_PREFIX = "[edit_image]"
 
 
@@ -129,16 +132,23 @@ def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
                     prompt=args.prompt,
                     size=args.size,
                     quality=args.quality,
+                    response_format="b64_json",
                     # The moderation parameter isn't exposed as a direct kwarg
                     # in the OpenAI SDK, so we pass it via extra_body.
                     extra_body={"moderation": "low"},
                 )
 
+            if not response.data:
+                return {"error": "API returned empty data array", "error_code": "API_ERROR", "retryable": True}
+
             b64_data = response.data[0].b64_json
             if not b64_data:
                 return {"error": "API returned no image data", "error_code": "API_ERROR", "retryable": True}
 
-            image_bytes = base64.b64decode(b64_data)
+            try:
+                image_bytes = base64.b64decode(b64_data)
+            except binascii.Error as exc:
+                return {"error": f"Failed to decode image data: {exc}", "error_code": "API_ERROR", "retryable": False}
 
             output = Path(args.output_path)
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -157,12 +167,19 @@ def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
             if rate_limit_attempts > MAX_RATE_LIMIT_RETRIES:
                 return {"error": f"Rate limited after {MAX_RATE_LIMIT_RETRIES} retries: {exc}",
                         "error_code": "RATE_LIMITED", "retryable": True}
-            delay = 2 ** rate_limit_attempts
-            log(f"Rate limited, retry {rate_limit_attempts}/{MAX_RATE_LIMIT_RETRIES} in {delay}s")
+            try:
+                retry_after = float(exc.response.headers.get("Retry-After", 0))
+            except (AttributeError, ValueError, TypeError):
+                retry_after = 0.0
+            if retry_after > 0:
+                delay = retry_after
+            else:
+                delay = (2 ** rate_limit_attempts) + random.uniform(0, 1)
+            log(f"Rate limited, retry {rate_limit_attempts}/{MAX_RATE_LIMIT_RETRIES} in {delay:.1f}s")
             time.sleep(delay)
 
         except APITimeoutError:
-            return {"error": "Request timed out after 120s", "error_code": "TIMEOUT", "retryable": True}
+            return {"error": f"Request timed out after {CLIENT_TIMEOUT:.0f}s", "error_code": "TIMEOUT", "retryable": True}
 
         except APIError as exc:
             if exc.status_code and exc.status_code in (500, 502, 503):
@@ -170,11 +187,13 @@ def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
                 if server_error_attempts > MAX_SERVER_ERROR_RETRIES:
                     return {"error": f"Server error after {MAX_SERVER_ERROR_RETRIES} retries: {exc}",
                             "error_code": "API_ERROR", "retryable": True}
-                delay = 2 ** server_error_attempts
-                log(f"Server error {exc.status_code}, retry {server_error_attempts}/{MAX_SERVER_ERROR_RETRIES} in {delay}s")
+                delay = (2 ** server_error_attempts) + random.uniform(0, 1)
+                log(f"Server error {exc.status_code}, retry {server_error_attempts}/{MAX_SERVER_ERROR_RETRIES} in {delay:.1f}s")
                 time.sleep(delay)
             elif exc.status_code == 400 and "content policy" in str(exc).lower():
                 return {"error": f"Content policy violation: {exc}", "error_code": "CONTENT_POLICY", "retryable": False}
+            elif exc.status_code in (400, 403):
+                return {"error": str(exc), "error_code": "API_ERROR", "retryable": False}
             else:
                 return {"error": str(exc), "error_code": "API_ERROR", "retryable": True}
 
@@ -196,7 +215,7 @@ def main() -> None:
     log(f"Prompt: {args.prompt}")
     log(f"Model: {args.model}, size: {args.size}, quality: {args.quality}")
 
-    client = openai.OpenAI(api_key=api_key, timeout=120.0)
+    client = openai.OpenAI(api_key=api_key, timeout=CLIENT_TIMEOUT)
 
     try:
         result = call_api(client, args)
