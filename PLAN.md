@@ -7,7 +7,8 @@ Build a Claude skill that enables image editing via a 3rd-party AI model API. Th
 ## Target Platform
 
 - **Primary surface**: Claude Web (claude.ai) — uploaded via Settings > Customize > Skills as a .zip
-- **Portability goal**: The skill follows the [Agent Skills open standard](https://agentskills.io/specification), making it compatible with Claude Code (`.claude/skills/`), the Claude API, and any other Agent Skills-compatible platform
+- **v1 scope**: Claude Web only
+- **Later adaptation**: Claude Code can be considered after Claude Web succeeds; Claude API is out of scope for v1 because this skill depends on external network access to call OpenAI
 - **Runtime requirements**: Code execution and file creation must be enabled; network egress must be enabled (at minimum for `api.openai.com`)
 
 ## Skill Architecture
@@ -68,7 +69,7 @@ The primary instructions file that Claude reads when the skill is activated. Con
 ### 2. `scripts/edit_image.py` — API Integration Script
 
 A self-contained Python script that:
-- Accepts CLI arguments: `--image-path`, `--prompt`, `--api-key`, `--output-path`, `--model`, `--size`, `--quality`
+- Accepts CLI arguments: `--image-path`, `--prompt`, `--output-path`, `--model`, `--size`, `--quality`
 - Reads the source image from disk
 - Calls the OpenAI Images Edit API (`POST /v1/images/edits`)
 - Saves the edited image to the specified output path
@@ -76,9 +77,9 @@ A self-contained Python script that:
 - Implements robust error handling (see Error Handling section)
 
 **Key design decisions for the script:**
-- **No external dependencies beyond `openai` SDK** — use the official `openai` Python package; the script handles all HTTP/multipart complexity via the SDK
+- **Primary dependency is the `openai` SDK** — use the official `openai` Python package; add `Pillow` only if format normalization is required after API verification
 - **Dependency management with `uv`** — use `uv pip install` for fast, reliable package installation in the sandboxed VM
-- **Dependencies declared in frontmatter** — the SKILL.md will declare `dependencies: openai` so Claude knows to install it
+- **Credential source is not a CLI argument** — the script should read the OpenAI key from an environment variable or a local `.env` file loaded at runtime
 - **Stateless** — no config files, no caching; all parameters passed via CLI args
 - **Stdout for results, stderr for logs** — clean separation so Claude can parse the JSON result
 
@@ -117,7 +118,6 @@ Example input/output pairs to help Claude understand what kinds of edits work we
 │  5. Claude runs: python scripts/edit_image.py                │
 │     --image-path /tmp/input.png                              │
 │     --prompt "user's edit instruction"                       │
-│     --api-key sk-...                                         │
 │     --output-path /tmp/output.png                            │
 │     ↓                                                        │
 │  6. Script calls OpenAI API (requires network egress)        │
@@ -140,7 +140,7 @@ Example input/output pairs to help Claude understand what kinds of edits work we
 - **Endpoint**: `POST https://api.openai.com/v1/images/edits`
 - **Model**: `gpt-image-1.5`
 - **Input parameters**:
-  - `image`: The source image file (PNG recommended; JPEG/WebP converted to PNG first)
+  - `image`: The source image file
   - `prompt`: Text description of the desired edit
   - `model`: Model identifier
   - `size`: Output size (e.g. `1024x1024`, `auto`)
@@ -150,11 +150,15 @@ Example input/output pairs to help Claude understand what kinds of edits work we
 
 ### Image Format Handling
 
-| Input Format | Handling |
+The current v1 target formats are **PNG, JPEG, and WebP**, because that is what the user wants the skill to accept.
+
+However, the plan should not assume conversion behavior until the OpenAI `gpt-image-1.5` edit contract is verified.
+
+| Input Format | Current Plan |
 |---|---|
-| PNG | Pass directly to API |
-| JPEG | Convert to PNG before API call (using Pillow) |
-| WebP | Convert to PNG before API call (using Pillow) |
+| PNG | Accept in v1 |
+| JPEG | Accept in v1, but verify whether native upload is supported or whether normalization is required |
+| WebP | Accept in v1, but verify whether native upload is supported or whether normalization is required |
 
 ### Model Abstraction
 
@@ -168,7 +172,7 @@ The script uses `gpt-image-1.5` and accepts a `--model` argument for forward com
 ### Input Validation (before API call)
 - **File not found**: Clear error message with the attempted path
 - **Unsupported format**: List supported formats and suggest conversion
-- **File too large**: Report size limit and suggest compression (OpenAI limit: ~25MB for edits)
+- **File too large**: Report size limit and suggest compression once the exact OpenAI edit limits are verified
 - **Empty/corrupt image**: Attempt to open with Pillow; report if it fails
 
 ### API Errors (during API call)
@@ -201,10 +205,12 @@ The SKILL.md will instruct Claude on how to interpret these errors and communica
 ### API Key Handling
 - **Never hardcode** API keys in the skill files
 - **Never log** API keys to stdout/stderr
-- API key is passed as a CLI argument and only lives in the VM's process memory
-- The SKILL.md instructs Claude to ask the user for their API key at the start of the conversation
-- On Claude Web, the VM is ephemeral — the key is not persisted between sessions
-- On Claude Code, the SKILL.md should also support reading from a `.env` file or environment variable as an alternative
+- **Do not pass the API key as a CLI argument**
+- On Claude Web, users may either paste the key into the conversation for that session or include a personal-use `.env` file in their uploaded skill package
+- Commit only `.env.example` to the repository; never commit a real `.env`
+- A real `.env` is allowed only in a personal uploaded zip and must never be committed to the repo
+- The SKILL.md should explain that a packaged `.env` is for private personal use only and should not be shared
+- Claude Web sessions are ephemeral, so pasted credentials may need to be supplied again in later sessions
 
 ### Content Safety
 - The OpenAI API enforces its own content policies; the script should surface content policy rejections clearly to the user
@@ -223,42 +229,37 @@ The SKILL.md will instruct Claude on how to interpret these errors and communica
 
 ### Python Dependencies
 - `openai` — Official OpenAI Python SDK for API interaction
-- `Pillow` — Image format conversion (JPEG/WebP → PNG) and validation
+- `Pillow` — Optional; only needed if input normalization or validation requires it after API verification
 - Managed via `uv` (fast Python package manager)
 
 ### Dependency Installation
 The SKILL.md will instruct Claude to install dependencies at skill activation:
 ```bash
+uv pip install openai
+```
+
+If API verification confirms JPEG/WebP normalization is required, update the install command to:
+
+```bash
 uv pip install openai Pillow
 ```
 
-## Cross-Platform Considerations
+## Proposed Next-Step Decisions
 
-| Aspect | Claude Web | Claude Code |
-|---|---|---|
-| Image input | User uploads to conversation | File path on disk |
-| API key source | User provides in conversation | `.env` file or env var |
-| Image output | Rendered in conversation response | Saved to disk, path reported |
-| Network access | Requires "Allow network egress" | Always available |
-| Package install | `uv pip install` in sandbox | `uv pip install` locally |
+Before implementation starts, resolve these decisions:
 
-The SKILL.md should contain conditional instructions so Claude adapts its behavior based on the platform it's running on.
+1. Verify the exact `gpt-image-1.5` image edit contract, especially supported input formats and whether JPEG/WebP normalization is required.
+2. Define the exact output-file handoff contract in `SKILL.md` so Claude reliably exposes the edited image to the user, preferably as a single PNG file in v1.
+3. Add packaging guidance for `.env.example`, personal-use `.env`, and zip layout.
+4. Keep the initial implementation focused on Claude Web only.
 
 ## Implementation Todos
 
-1. **Create SKILL.md** — Write the main skill file with frontmatter and step-by-step instructions for Claude
-2. **Create `scripts/edit_image.py`** — Implement the core Python script for OpenAI API interaction with full error handling and retry logic
-3. **Create `references/REFERENCE.md`** — Write extended documentation covering API details, format constraints, and troubleshooting
-4. **Create `assets/example_prompts.md`** — Compile example edit prompts and describe expected behaviors
-5. **Update `README.md`** — Write repository documentation with setup instructions, usage guide, and contribution info
-6. **Test on Claude Web** — Package as .zip and upload to Claude Web for manual testing
-7. **Test on Claude Code** — Install as a project skill and test end-to-end
+1. **Verify the OpenAI API contract** — Confirm the exact `gpt-image-1.5` image edit request/response behavior, supported input formats, and output handling
+2. **Create SKILL.md** — Write the main skill file with frontmatter and step-by-step instructions for Claude
+3. **Create `scripts/edit_image.py`** — Implement the core Python script for OpenAI API interaction with full error handling and retry logic
+4. **Create `references/REFERENCE.md`** — Write extended documentation covering API details, format constraints, and troubleshooting
+5. **Create `assets/example_prompts.md`** — Compile example edit prompts and describe expected behaviors
+6. **Update `README.md`** — Write repository documentation with setup instructions, usage guide, `.env.example` packaging guidance, and contribution info
+7. **Test on Claude Web** — Package as .zip and upload to Claude Web for manual testing
 8. **Iterate on SKILL.md instructions** — Refine based on testing to improve Claude's reliability in executing the workflow
-
-## Open Questions / Future Considerations
-
-- **Mask support**: The OpenAI API supports an optional mask parameter for targeted edits. Could be added as a future enhancement where the user describes what area to edit and Claude generates a mask.
-- **Multiple output options**: Support generating multiple variations and letting the user pick.
-- **Image generation (not just editing)**: The scope is currently edit-only, but the same script architecture could support generation from scratch.
-- **Provider abstraction**: If support for other providers (Stability AI, etc.) is desired in the future, the script could be refactored to use a provider interface pattern.
-- **Cost awareness**: The SKILL.md could instruct Claude to warn users about API costs before making calls.
