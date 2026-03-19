@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-Build a Claude skill that enables image editing via a 3rd-party AI model API. The user uploads an image to a Claude conversation and provides a text prompt describing desired edits. The skill orchestrates a call to OpenAI's `gpt-image-1` (or newer, e.g. `gpt-image-1.5`) image editing API, applies the requested changes, and renders the edited image back in the conversation for the user to view or download.
+Build a Claude skill that enables image editing via a 3rd-party AI model API. The user uploads an image to a Claude conversation and provides a text prompt describing desired edits. The skill orchestrates a call to OpenAI's **`gpt-image-1.5`** image editing API, applies the requested changes, and renders the edited image back in the conversation for the user to view or download.
 
 ## Target Platform
 
@@ -88,7 +88,7 @@ Loaded on-demand by Claude when troubleshooting or handling edge cases:
 - OpenAI API rate limits and quotas
 - Supported image formats and size constraints per model
 - Common error codes and resolutions
-- Model-specific capabilities and limitations (gpt-image-1 vs future models)
+- Model-specific capabilities and limitations of `gpt-image-1.5`
 
 ### 4. `assets/example_prompts.md` — Usage Examples
 
@@ -138,7 +138,7 @@ Example input/output pairs to help Claude understand what kinds of edits work we
 ### OpenAI Images Edit API
 
 - **Endpoint**: `POST https://api.openai.com/v1/images/edits`
-- **Model**: `gpt-image-1` (default), with support for specifying newer models (e.g. `gpt-image-1.5`) via CLI argument
+- **Model**: `gpt-image-1.5`
 - **Input parameters**:
   - `image`: The source image file (PNG recommended; JPEG/WebP converted to PNG first)
   - `prompt`: Text description of the desired edit
@@ -158,9 +158,9 @@ Example input/output pairs to help Claude understand what kinds of edits work we
 
 ### Model Abstraction
 
-The script should accept a `--model` argument with a default value. This allows:
-- Easy updates when newer models (e.g. `gpt-image-1.5`) become available
-- The SKILL.md instructions can tell Claude which model to use by default
+The script uses `gpt-image-1.5` and accepts a `--model` argument for forward compatibility with future models. This allows:
+- Using `gpt-image-1.5` out of the box
+- Upgrading to newer models in the future without code changes
 - Users can request a specific model in conversation
 
 ## Error Handling Strategy
