@@ -119,6 +119,22 @@ def validate_image(image_path: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def build_edit_request_kwargs(args: argparse.Namespace, image_file: Any) -> dict[str, Any]:
+    return {
+        "model": args.model,
+        "image": image_file,
+        "prompt": args.prompt,
+        "size": args.size,
+        "quality": args.quality,
+        "response_format": "b64_json",
+        # Keep moderation isolated in extra_body until the edit-specific contract
+        # is verified end-to-end; quality is part of the typed edit request.
+        "extra_body": {
+            "moderation": "low",
+        },
+    }
+
+
 def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
     rate_limit_attempts = 0
     server_error_attempts = 0
@@ -126,19 +142,7 @@ def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
     while True:
         try:
             with open(args.image_path, "rb") as img_file:
-                response = client.images.edit(
-                    model=args.model,
-                    image=img_file,
-                    prompt=args.prompt,
-                    size=args.size,
-                    response_format="b64_json",
-                    # The quality and moderation parameters aren't always recognized
-                    # as direct kwargs by the API, so we pass them via extra_body.
-                    extra_body={
-                        "quality": args.quality,
-                        "moderation": "low",
-                    },
-                )
+                response = client.images.edit(**build_edit_request_kwargs(args, img_file))
 
             if not response.data:
                 return {"error": "API returned empty data array", "error_code": "API_ERROR", "retryable": True}
