@@ -82,7 +82,7 @@ A self-contained Python script that:
 - **Credential source is not a CLI argument** — the script should read the OpenAI key from an environment variable or a local `.env` file loaded at runtime
 - **Stateless** — no config files, no caching; all parameters passed via CLI args
 - **Stdout for results, stderr for logs** — clean separation so Claude can parse the JSON result
-- **Moderation via `extra_body`** — pass `moderation: "low"` using `extra_body={"moderation": "low"}` because the Python SDK does not expose `moderation` as a direct kwarg
+- **Moderation handling** — the published guide documents `moderation`, but the current Python `images.edit()` surface used here does not expose it as a direct kwarg, so keep it in `extra_body` for edit calls
 - **Response format is `b64_json`** — gpt-image-1.5 returns base64 by default; the script decodes and writes to the output path
 
 ### 3. `references/REFERENCE.md` — Extended Documentation
@@ -176,7 +176,7 @@ The API accepts a `moderation` parameter to control content filtering:
 - `"auto"` — default, standard content filtering
 - `"low"` — less restrictive filtering (use this as the default in the skill)
 
-**Python SDK caveat**: As of the current SDK version, `moderation` is not in the official `images.edit()` method signature. Passing it as a direct keyword argument raises `TypeError`. Use `extra_body` instead:
+**Python SDK caveat**: The published guide documents `moderation`, but the current Python `images.edit()` surface used here does not expose it as a direct keyword argument. For this repo's edit flow, pass it via `extra_body`:
 
 ```python
 client.images.edit(
@@ -187,7 +187,7 @@ client.images.edit(
 )
 ```
 
-In raw HTTP, `moderation` is just a standard JSON body field. The `extra_body` workaround is Python-SDK-specific.
+In raw HTTP, `moderation` is still just a standard body field. The `extra_body` approach here is a Python-SDK-specific implementation detail.
 
 ### Model Abstraction
 
@@ -281,7 +281,7 @@ The following questions from the original plan have been resolved via API resear
 2. **File size limit**: 50 MB per input image (confirmed).
 3. **Response format**: `b64_json` is the default for gpt-image models. The script decodes base64 and saves to the output path.
 4. **Output file handoff**: The script outputs a single PNG file at `--output-path`. Claude reads and renders it inline.
-5. **Moderation**: Use `moderation: "low"` via `extra_body` in the Python SDK (not a direct kwarg — see Moderation section).
+5. **Moderation**: Use `moderation: "low"` via `extra_body` for this repo's Python edit flow (see Moderation section).
 6. **Pillow dependency**: Not required for v1. May be added optionally for corrupt-image detection.
 
 ## Remaining Decisions

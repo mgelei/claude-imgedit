@@ -238,26 +238,18 @@ The input image exceeds the 50 MB limit.
 - **Include context** about what should stay the same (e.g., "keep the background unchanged")
 - Try multiple generations (`n: 2` or `n: 3`) and pick the best result
 
-### SDK issues: `moderation` parameter
+### SDK note: `moderation` on image edits
 
-The `moderation` parameter is **not** a standard kwarg in the OpenAI Python SDK. Passing it directly will raise an error.
+The published OpenAI image-generation guide documents a `moderation` parameter for
+GPT Image models. In the current Python `images.edit()` surface used by this repo,
+`moderation` is not exposed as a direct kwarg, so the safer edit-call pattern is to
+pass it via `extra_body`.
 
-**Wrong:**
 ```python
-# ❌ This will raise a TypeError
 response = client.images.edit(
     image=open("photo.png", "rb"),
     prompt="Make the sky purple",
-    moderation="low"  # NOT a valid kwarg
-)
-```
-
-**Correct:**
-```python
-# ✅ Use extra_body to pass non-standard parameters
-response = client.images.edit(
-    image=open("photo.png", "rb"),
-    prompt="Make the sky purple",
+    quality="high",
     extra_body={"moderation": "low"}
 )
 ```
@@ -269,7 +261,7 @@ response = client.images.edit(
 ### Installation
 
 ```bash
-pip install openai
+uv pip install openai
 ```
 
 ### Client Setup
@@ -322,9 +314,11 @@ response = client.images.edit(
 )
 ```
 
-### Passing Non-Standard Parameters
+### Passing Additional Edit Parameters
 
-Parameters not directly supported as kwargs (like `moderation`, `input_fidelity`, `output_compression`, `background`) must be passed via `extra_body`:
+On current SDK versions, `quality`, `input_fidelity`, `output_compression`, and
+`background` are standard `images.edit()` kwargs. Keep `moderation` in
+`extra_body` for edit calls unless the SDK later exposes it directly.
 
 ```python
 response = client.images.edit(
@@ -333,11 +327,12 @@ response = client.images.edit(
     prompt="Make the background transparent",
     size="auto",
     quality="high",
+    input_fidelity="high",
+    background="transparent",
+    output_format="webp",
+    output_compression=80,
     extra_body={
         "moderation": "low",
-        "input_fidelity": "high",
-        "background": "transparent",
-        "output_compression": 80
     }
 )
 ```
