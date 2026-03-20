@@ -50,24 +50,39 @@ Run this once per session. If it has already been installed, skip this step.
 
 ### Obtain the OpenAI API Key
 
-Check for the API key in this order:
+> ⚠️ **Security — follow strictly:** Never print, echo, or display the API key value at any point. Do **not** run `cat .env`. Do **not** echo or log `$OPENAI_API_KEY`. Never include the key value in any message or output shown to the user.
 
-1. **Environment variable:** Check if `OPENAI_API_KEY` is already set in the environment.
-2. **`.env` file:** Look for a `.env` file at the skill root directory (the same directory as this `SKILL.md` file). If it exists, read the `OPENAI_API_KEY` value from it.
-3. **Ask the user:** If neither source provides a key, ask the user:
-   > "I need an OpenAI API key to perform image edits. Please provide your API key, and I'll store it for this session."
+The edit script reads the key automatically — first from the `OPENAI_API_KEY` environment variable, then from a `.env` file at the skill root. You only need to verify a key source exists before proceeding.
 
-   Once the user provides the key, write it to a `.env` file at the skill root:
+Check in this order:
 
-   ```
-   OPENAI_API_KEY=sk-...
-   ```
-
-   Alternatively, export it in the shell environment:
+1. **Environment variable:** Test whether `OPENAI_API_KEY` is set — without printing its value:
 
    ```bash
-   export OPENAI_API_KEY="sk-..."
+   if [ -n "$OPENAI_API_KEY" ]; then echo "KEY_IN_ENV"; else echo "NO_ENV_KEY"; fi
    ```
+
+2. **`.env` file:** If no env var, check whether a `.env` file at the skill root contains the key — without reading the file:
+
+   ```bash
+   grep -q "^OPENAI_API_KEY=" .env 2>/dev/null && echo "KEY_IN_FILE" || echo "NO_FILE_KEY"
+   ```
+
+3. **Ask the user:** If neither check passes, ask the user:
+   > "I need an OpenAI API key to perform image edits. Please provide your key, and I'll save it for future use."
+
+   Once the user provides the key, write it to a `.env` file at the skill root using Python (to avoid the key appearing as a shell argument):
+
+   ```bash
+   python -c "
+   import sys, pathlib
+   key = sys.argv[1]
+   pathlib.Path('.env').write_text(f'OPENAI_API_KEY={key}\n')
+   print('Key saved to .env')
+   " "USER_PROVIDED_KEY"
+   ```
+
+   Replace `USER_PROVIDED_KEY` with the key the user gave you. Do **not** echo or confirm the key value in any message after saving it.
 
 > **Tip:** For convenience in private use, you can include a `.env` file with your API key inside the uploaded skill zip. This way the key is available automatically. **Never share a skill zip that contains your API key.**
 
@@ -125,12 +140,16 @@ The edit script is located at `scripts/edit_image.py` relative to the skill root
 | `--size`    | `auto`            | `auto`, `1024x1024`, `1536x1024`, `1024x1536`  |
 | `--quality` | `auto`            | `auto`, `low`, `medium`, `high`                 |
 
+> **Important:** Do **not** pass `--model` unless the user explicitly asks to use a specific model. Omit the argument entirely so the script's default (`gpt-image-1.5`) is used.
+
 ### Step 4: Run the Edit Script
 
-Set the `OPENAI_API_KEY` environment variable and execute the script:
+> ⚠️ **Security:** Do **not** prefix the command with `OPENAI_API_KEY=...` — the script reads the key from the environment or `.env` file automatically. Never echo or print `$OPENAI_API_KEY` at any point.
+
+Execute the script directly:
 
 ```bash
-OPENAI_API_KEY="$KEY" python scripts/edit_image.py \
+python scripts/edit_image.py \
   --image-path /tmp/input_image.png \
   --prompt "remove the background and replace it with a gradient" \
   --output-path /tmp/edited_image.png
@@ -139,7 +158,7 @@ OPENAI_API_KEY="$KEY" python scripts/edit_image.py \
 With optional parameters:
 
 ```bash
-OPENAI_API_KEY="$KEY" python scripts/edit_image.py \
+python scripts/edit_image.py \
   --image-path /tmp/input_image.png \
   --prompt "make it look like a watercolor painting" \
   --output-path /tmp/edited_image.png \
