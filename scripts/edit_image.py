@@ -131,11 +131,13 @@ def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
                     image=img_file,
                     prompt=args.prompt,
                     size=args.size,
-                    quality=args.quality,
                     response_format="b64_json",
-                    # The moderation parameter isn't exposed as a direct kwarg
-                    # in the OpenAI SDK, so we pass it via extra_body.
-                    extra_body={"moderation": "low"},
+                    # The quality and moderation parameters aren't always recognized
+                    # as direct kwargs by the API, so we pass them via extra_body.
+                    extra_body={
+                        "quality": args.quality,
+                        "moderation": "low",
+                    },
                 )
 
             if not response.data:
