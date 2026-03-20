@@ -43,7 +43,7 @@ Before running the edit for the first time in a session, complete these setup st
 ### Install Dependencies
 
 ```bash
-uv pip install openai
+uv pip install openai --system --break-system-packages
 ```
 
 Run this once per session. If it has already been installed, skip this step.
