@@ -125,6 +125,8 @@ The edit script is located at `scripts/edit_image.py` relative to the skill root
 | `--size`    | `auto`            | `auto`, `1024x1024`, `1536x1024`, `1024x1536`  |
 | `--quality` | `auto`            | `auto`, `low`, `medium`, `high`                 |
 
+> **Important:** Do **not** pass `--model` unless the user explicitly asks to use a specific model. Omit the argument entirely so the script's default (`gpt-image-1.5`) is used.
+
 ### Step 4: Run the Edit Script
 
 Set the `OPENAI_API_KEY` environment variable and execute the script:
