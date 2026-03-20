@@ -42,11 +42,19 @@ Before running the edit for the first time in a session, complete these setup st
 
 ### Install Dependencies
 
+Check whether `openai` is already available:
+
 ```bash
-uv pip install openai --system --break-system-packages
+python -c "import openai" >/dev/null 2>&1 && echo "OPENAI_INSTALLED" || echo "OPENAI_MISSING"
 ```
 
-Run this once per session. If it has already been installed, skip this step.
+If the output is `OPENAI_MISSING`, install dependencies with:
+
+```bash
+pip install openai --break-system-packages -q
+```
+
+Run this at most once per session. Use this exact `pip` command for sandbox setup; do not try `uv` first.
 
 ### Obtain the OpenAI API Key
 

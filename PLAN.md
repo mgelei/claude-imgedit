@@ -78,7 +78,7 @@ A self-contained Python script that:
 
 **Key design decisions for the script:**
 - **Primary dependency is the `openai` SDK** — use the official `openai` Python package; Pillow is optional for corrupt-image detection only
-- **Dependency management with `uv`** — use `uv pip install` for fast, reliable package installation in the sandboxed VM
+- **Dependency management with `pip`** — use `pip install --break-system-packages` for reliable package installation in the sandboxed VM
 - **Credential source is not a CLI argument** — the script should read the OpenAI key from an environment variable or a local `.env` file loaded at runtime
 - **Stateless** — no config files, no caching; all parameters passed via CLI args
 - **Stdout for results, stderr for logs** — clean separation so Claude can parse the JSON result
@@ -259,18 +259,18 @@ The SKILL.md will instruct Claude on how to interpret these errors and communica
 ### Python Dependencies
 - `openai` — Official OpenAI Python SDK for API interaction
 - `Pillow` — Optional; only needed if corrupt-image validation is desired (not required for format normalization)
-- Managed via `uv` (fast Python package manager)
+- Managed via `pip` in the target sandbox/runtime environment
 
 ### Dependency Installation
 The SKILL.md will instruct Claude to install dependencies at skill activation:
 ```bash
-uv pip install openai
+pip install openai --break-system-packages -q
 ```
 
 If corrupt-image detection via Pillow is desired, add it:
 
 ```bash
-uv pip install openai Pillow
+pip install openai Pillow --break-system-packages -q
 ```
 
 ## Resolved Decisions

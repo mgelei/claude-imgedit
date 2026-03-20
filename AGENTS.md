@@ -1,1 +1,1 @@
-Use uv when interacting with Python packages and scripts
+Use pip, not uv, when installing Python packages in this repo.
