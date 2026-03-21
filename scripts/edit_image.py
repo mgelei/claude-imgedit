@@ -126,9 +126,6 @@ def build_edit_request_kwargs(args: argparse.Namespace, image_file: Any) -> dict
         "prompt": args.prompt,
         "size": args.size,
         "quality": args.quality,
-        "response_format": "b64_json",
-        # Keep moderation isolated in extra_body until the edit-specific contract
-        # is verified end-to-end; quality is part of the typed edit request.
         "extra_body": {
             "moderation": "low",
         },

@@ -114,7 +114,7 @@ git clone https://github.com/your-username/claude-imgedit.git
 cd claude-imgedit
 
 # Install dependencies (for local testing)
-uv pip install openai --system --break-system-packages
+pip install openai --break-system-packages -q
 
 # Test the script directly
 export OPENAI_API_KEY="sk-your-key"

@@ -261,7 +261,7 @@ response = client.images.edit(
 ### Installation
 
 ```bash
-uv pip install openai --system --break-system-packages
+pip install openai --break-system-packages -q
 ```
 
 ### Client Setup
