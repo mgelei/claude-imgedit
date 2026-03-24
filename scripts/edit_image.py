@@ -54,7 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Edit an image using the OpenAI image edit API.")
     parser.add_argument("--image-paths", "--image-path",
                         nargs="+", required=True, dest="image_paths",
-                        help="Path(s) to source image file(s). First is the target; remaining are references. Up to 16.")
+                        help="Path(s) to one or more source image files. Up to 16.")
     parser.add_argument("--prompt", required=True, help="Text description of the desired edit")
     parser.add_argument("--output-path", required=True, help="Where to save the edited image")
     parser.add_argument("--model", default="gpt-image-1.5", help="Model identifier")

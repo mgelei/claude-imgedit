@@ -16,6 +16,11 @@ A reference of effective prompts for AI image editing, organized by category.
 - **"Render in the style of a comic book with bold outlines"** — Works well on portraits and action shots.
 - **"Make it look like pixel art"** — Specify a resolution hint (e.g., "16-bit style") for consistency.
 
+## Multi-Image Edits
+
+- **"Convert the photo to a drawing, use the other image as style guidance"** — Pass both uploaded images through and keep the user's phrasing intact.
+- **"Apply the outfit from the selfie to the photo of the woman with glasses"** — Do not rename the uploads with ordinal or role labels in the forwarded prompt.
+
 ## Object Manipulation
 
 - **"Add aviator sunglasses to the person"** — Face should be clearly visible and front-facing.

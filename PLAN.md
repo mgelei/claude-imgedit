@@ -291,7 +291,7 @@ The following questions from the original plan have been resolved via API resear
 
 ## Resolved Decisions (Issue #12)
 
-7. **Multiple images / reference images**: The `image` parameter accepts up to 16 images as a list of file handles. All images go into the same `image` field. The prompt text distinguishes target vs. reference images (e.g., "Apply the style of the second image to the first"). The `--image-path` CLI argument was updated to `--image-paths` (with `--image-path` as a backward-compatible alias) using `nargs="+"`. `contextlib.ExitStack` manages multiple file handles cleanly.
+7. **Multiple images**: The `image` parameter accepts up to 16 images as a list of file handles. All images go into the same `image` field. The agent should forward the user's prompt without inferring image roles or relying on file order to encode meaning. The `--image-path` CLI argument was updated to `--image-paths` (with `--image-path` as a backward-compatible alias) using `nargs="+"`. `contextlib.ExitStack` manages multiple file handles cleanly.
 
 ## Implementation Todos
 

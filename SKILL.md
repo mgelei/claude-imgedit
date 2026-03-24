@@ -3,7 +3,7 @@ name: image-edit
 description: >
   Edit images using AI. When a user uploads one or more images and asks for
   visual changes (e.g. "remove the background", "make it look like a watercolor",
-  "add a hat to the person", "apply the style from this reference image"), use
+  "add a hat to the person", "apply the style from another uploaded image"), use
   this skill to apply the edits via the OpenAI image editing API and return the result.
 compatibility: >
   Requires network egress to api.openai.com. Requires code execution enabled.
@@ -33,7 +33,7 @@ Activate this skill when **both** of the following are true:
 - "Make it look like it was taken at night"
 - "Convert this photo to a drawing, use the other image as style reference"
 - "Apply the outfit from this selfie to the portrait"
-- "Use this color palette as reference for editing my photo"
+- "Use the color palette from the other image when editing my photo"
 
 If the user uploads an image but only asks a question about it (e.g., "What's in this image?"), do **not** activate this skill — that is an image understanding task, not an edit.
 
@@ -116,7 +116,7 @@ cp <source2> /tmp/input_image_2.png
 
 Use an appropriate method to write image bytes to disk. Preserve the original file extension when possible.
 
-**When multiple images are uploaded:** identify which is the target (the image to be edited) and which are references (style/content guides) based on the user's request. Save the target first, then references. You will pass them in this order to the script.
+**When multiple images are uploaded:** save each uploaded image and pass all of them to the script. Do **not** infer which image is the target, do **not** assign reference roles, and do **not** rely on image order to carry meaning. The API model resolves image roles from the user's prompt.
 
 ### Step 2: Validate the Image
 
@@ -140,9 +140,11 @@ The edit script is located at `scripts/edit_image.py` relative to the skill root
 
 | Argument          | Description                                                                              |
 |-------------------|------------------------------------------------------------------------------------------|
-| `--image-paths`   | Path(s) to the saved image file(s). Pass target image first, then any reference images. Up to 16 total. |
+| `--image-paths`   | Path(s) to the saved image file(s). Pass one or more uploaded images. Up to 16 total.   |
 | `--prompt`        | The user's edit instruction (properly quoted)                                            |
 | `--output-path`   | Where to save the edited result                                                          |
+
+**Prompt handling:** Use the user's edit request as the prompt. Preserve their wording except for the minimal quoting needed to run the shell command safely. Do **not** rewrite the request with ordinal labels, numbered image labels, or target/reference labels.
 
 **Optional arguments:**
 
@@ -167,12 +169,12 @@ python scripts/edit_image.py \
   --output-path /tmp/edited_image.png
 ```
 
-With reference images:
+With multiple images:
 
 ```bash
 python scripts/edit_image.py \
   --image-paths /tmp/input_image_1.png /tmp/input_image_2.png \
-  --prompt "Apply the art style of the second image to the first image" \
+  --prompt "Apply the outfit from the selfie to the photo of the woman with glasses" \
   --output-path /tmp/edited_image.png
 ```
 
@@ -277,7 +279,7 @@ Share these tips with the user if they seem unsure about how to phrase their req
 - **For style transfers:** Reference well-known art styles by name — e.g., "in the style of Monet's water lilies," "as a Studio Ghibli animation frame," or "like a retro 1980s poster."
 - **Quality setting:** Use `high` for final outputs and `low` or `medium` for quick drafts or iterations.
 - **Size setting:** Use `auto` to preserve the original aspect ratio, or choose a specific size if you need exact dimensions.
-- **Reference images:** When using reference images, describe each image's role explicitly in the prompt (e.g., "Apply the color style of the second image to the first image" or "Use the outfit from image 2 on the person in image 1"). Pass the target image first, then references. Up to 16 images total are supported.
+- **Multiple images:** Keep the user's wording intact and pass the uploaded images through to the API. Do not add image numbers or role labels; the model resolves that from the prompt.
 
 ---
 

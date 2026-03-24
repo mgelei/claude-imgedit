@@ -20,7 +20,7 @@ The request body must be sent as `multipart/form-data` (required for file upload
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `image` | file | **Yes** | Source image(s) to edit. Accepts PNG, JPEG, or WebP. Max 50 MB per image. Up to 16 images. Pass a single file or a list of files — the prompt should describe which image is which (e.g., "Apply the style of the second image to the first"). |
+| `image` | file | **Yes** | Source image(s) to edit. Accepts PNG, JPEG, or WebP. Max 50 MB per image. Up to 16 images. Pass a single file or a list of files. The model resolves each image's role from the user's prompt; the caller should not inject numbered or target/reference wording. |
 | `prompt` | string | **Yes** | A text description of the desired edit. Max 32,000 characters. |
 | `model` | string | No | Model to use. One of `gpt-image-1.5` (default), `gpt-image-1`, `gpt-image-1-mini`, `chatgpt-image-latest`. |
 | `mask` | file | No | PNG image used as a mask. Transparent (alpha = 0) areas indicate where the image should be edited. Must be less than 4 MB and have the same dimensions as the input image. |
