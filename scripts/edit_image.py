@@ -50,12 +50,14 @@ def output_error(error: str, error_code: str, retryable: bool) -> None:
     }, indent=2))
 
 
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Edit an image using the OpenAI image edit API.")
     parser.add_argument("--image-paths", "--image-path",
                         nargs="+", required=True, dest="image_paths",
                         help="Path(s) to one or more source image files. Up to 16.")
-    parser.add_argument("--prompt", required=True, help="Text description of the desired edit")
+    prompt_group = parser.add_mutually_exclusive_group(required=True)
+    prompt_group.add_argument("--prompt", help="Text description of the desired edit")
+    prompt_group.add_argument("--prompt-file", help="Path to a UTF-8 text file containing the desired edit prompt")
     parser.add_argument("--output-path", required=True, help="Where to save the edited image")
     parser.add_argument("--model", default="gpt-image-1.5", help="Model identifier")
     parser.add_argument("--size", default="auto",
@@ -64,7 +66,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quality", default="auto",
                         choices=["auto", "low", "medium", "high"],
                         help="Output image quality")
-    return parser.parse_args()
+    return parser
+
+
+def parse_args() -> argparse.Namespace:
+    return build_parser().parse_args()
 
 
 def load_api_key() -> Optional[str]:
@@ -122,11 +128,47 @@ def validate_image(image_path: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def build_edit_request_kwargs(args: argparse.Namespace, image_file: Any) -> dict[str, Any]:
+def resolve_prompt(args: argparse.Namespace) -> tuple[Optional[str], Optional[dict[str, Any]]]:
+    if args.prompt_file:
+        prompt_path = Path(args.prompt_file)
+        try:
+            prompt = prompt_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None, {
+                "error": f"Prompt file not found: {prompt_path}",
+                "error_code": "VALIDATION_ERROR",
+                "retryable": False,
+            }
+        except UnicodeDecodeError as exc:
+            return None, {
+                "error": f"Prompt file is not valid UTF-8: {exc}",
+                "error_code": "VALIDATION_ERROR",
+                "retryable": False,
+            }
+        except OSError as exc:
+            return None, {
+                "error": f"Unable to read prompt file '{prompt_path}': {exc}",
+                "error_code": "VALIDATION_ERROR",
+                "retryable": False,
+            }
+    else:
+        prompt = args.prompt
+
+    if prompt is None or not prompt.strip():
+        return None, {
+            "error": "Prompt must not be empty",
+            "error_code": "VALIDATION_ERROR",
+            "retryable": False,
+        }
+
+    return prompt, None
+
+
+def build_edit_request_kwargs(args: argparse.Namespace, image_file: Any, prompt: str) -> dict[str, Any]:
     return {
         "model": args.model,
         "image": image_file,
-        "prompt": args.prompt,
+        "prompt": prompt,
         "size": args.size,
         "quality": args.quality,
         "extra_body": {
@@ -135,7 +177,7 @@ def build_edit_request_kwargs(args: argparse.Namespace, image_file: Any) -> dict
     }
 
 
-def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
+def call_api(client: openai.OpenAI, args: argparse.Namespace, prompt: str) -> dict[str, Any]:
     rate_limit_attempts = 0
     server_error_attempts = 0
 
@@ -144,7 +186,7 @@ def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
             with contextlib.ExitStack() as stack:
                 files = [stack.enter_context(open(p, "rb")) for p in args.image_paths]
                 image_arg = files[0] if len(files) == 1 else files
-                response = client.images.edit(**build_edit_request_kwargs(args, image_arg))
+                response = client.images.edit(**build_edit_request_kwargs(args, image_arg, prompt))
 
             if not response.data:
                 return {"error": "API returned empty data array", "error_code": "API_ERROR", "retryable": True}
@@ -224,14 +266,19 @@ def main() -> None:
             output_error(**validation_err)
             sys.exit(1)
 
+    prompt, prompt_err = resolve_prompt(args)
+    if prompt_err:
+        output_error(**prompt_err)
+        sys.exit(1)
+
     log(f"Editing image(s): {', '.join(args.image_paths)}")
-    log(f"Prompt: {args.prompt}")
+    log(f"Prompt: {prompt}")
     log(f"Model: {args.model}, size: {args.size}, quality: {args.quality}")
 
     client = openai.OpenAI(api_key=api_key, timeout=CLIENT_TIMEOUT)
 
     try:
-        result = call_api(client, args)
+        result = call_api(client, args, prompt)
     except Exception as exc:
         output_error(f"Unexpected error: {exc}", "UNKNOWN_ERROR", False)
         sys.exit(1)

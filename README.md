@@ -52,6 +52,8 @@ Once the skill is installed, simply:
 3. Wait for Claude to process the edit via the OpenAI API
 4. View the edited image inline — download it or request further edits
 
+The skill should forward your actual edit instructions to the API as directly as possible. It should not replace a detailed request with a short summary, and JSON or multi-line prompts should be passed safely without rewriting them.
+
 ### Supported Formats
 
 | Format | Status |
@@ -121,6 +123,15 @@ export OPENAI_API_KEY="sk-your-key"
 python scripts/edit_image.py \
   --image-path test_image.png \
   --prompt "make the sky more blue" \
+  --output-path output.png
+```
+
+For JSON or multi-line prompts:
+
+```bash
+python scripts/edit_image.py \
+  --image-path test_image.png \
+  --prompt-file prompt.json \
   --output-path output.png
 ```
 

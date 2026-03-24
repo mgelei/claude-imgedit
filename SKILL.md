@@ -141,10 +141,15 @@ The edit script is located at `scripts/edit_image.py` relative to the skill root
 | Argument          | Description                                                                              |
 |-------------------|------------------------------------------------------------------------------------------|
 | `--image-paths`   | Path(s) to the saved image file(s). Pass one or more uploaded images. Up to 16 total.   |
-| `--prompt`        | The user's edit instruction (properly quoted)                                            |
+| `--prompt`        | The user's edit instruction as inline text. Use for simple prompts only.                 |
+| `--prompt-file`   | Path to a UTF-8 text file containing the user's edit instruction exactly as written.     |
 | `--output-path`   | Where to save the edited result                                                          |
 
-**Prompt handling:** Use the user's edit request as the prompt. Preserve their wording except for the minimal quoting needed to run the shell command safely. Do **not** rewrite the request with ordinal labels, numbered image labels, or target/reference labels.
+Exactly one of `--prompt` or `--prompt-file` is required.
+
+**Prompt handling:** Forward the user's edit request verbatim. Preserve their wording exactly, except for removing obvious wrapper text that is not part of the edit itself, such as "use image-edit" or "edit this picture." Do **not** summarize, simplify, reorder, translate, or relabel the edit request. Do **not** rewrite the request with ordinal labels, numbered image labels, or target/reference labels just to make the command easier to construct.
+
+If the prompt is JSON, multi-line, or contains shell-sensitive characters, write it to a temporary UTF-8 text file and use `--prompt-file`. Do **not** rewrite the prompt to avoid quoting issues.
 
 **Optional arguments:**
 
@@ -169,12 +174,42 @@ python scripts/edit_image.py \
   --output-path /tmp/edited_image.png
 ```
 
+Wrapper text removed, edit request preserved:
+
+```text
+User message:
+Use image-edit. Edit the picture and change the color of the shirt from blue to white.
+
+Prompt passed to the script:
+Change the color of the shirt from blue to white.
+```
+
 With multiple images:
 
 ```bash
 python scripts/edit_image.py \
   --image-paths /tmp/input_image_1.png /tmp/input_image_2.png \
   --prompt "Apply the outfit from the selfie to the photo of the woman with glasses" \
+  --output-path /tmp/edited_image.png
+```
+
+With JSON or other shell-sensitive prompt text:
+
+```bash
+python - <<'PY'
+from pathlib import Path
+Path("/tmp/edit_prompt.json").write_text(
+    '{\n'
+    '  "edit": "Change the shirt from blue to white",\n'
+    '  "preserve": ["logo", "lighting"]\n'
+    '}\n',
+    encoding="utf-8",
+)
+PY
+
+python scripts/edit_image.py \
+  --image-paths /tmp/input_image.png \
+  --prompt-file /tmp/edit_prompt.json \
   --output-path /tmp/edited_image.png
 ```
 
@@ -280,6 +315,7 @@ Share these tips with the user if they seem unsure about how to phrase their req
 - **Quality setting:** Use `high` for final outputs and `low` or `medium` for quick drafts or iterations.
 - **Size setting:** Use `auto` to preserve the original aspect ratio, or choose a specific size if you need exact dimensions.
 - **Multiple images:** Keep the user's wording intact and pass the uploaded images through to the API. Do not add image numbers or role labels; the model resolves that from the prompt.
+- **JSON or long prompts:** Use `--prompt-file` and preserve the prompt text exactly. Do not compress it into a shorter summary.
 
 ---
 

@@ -20,6 +20,7 @@ A reference of effective prompts for AI image editing, organized by category.
 
 - **"Convert the photo to a drawing, use the other image as style guidance"** — Pass both uploaded images through and keep the user's phrasing intact.
 - **"Apply the outfit from the selfie to the photo of the woman with glasses"** — Do not rename the uploads with ordinal or role labels in the forwarded prompt.
+- **`{"edit":"Change the shirt from blue to white","preserve":["logo","lighting"]}`** — If the user provides structured JSON, forward it unchanged via `--prompt-file`.
 
 ## Object Manipulation
 
@@ -66,3 +67,4 @@ A reference of effective prompts for AI image editing, organized by category.
 - **Be specific**: "a sunny beach with palm trees" beats "a nice background."
 - **Combine edits carefully**: chaining too many changes in one prompt can reduce quality.
 - **Use `quality=high`** for detail-sensitive work like faces, text, or fine textures.
+- **Do not paraphrase the user**: forward the actual edit wording instead of compressing it into a shorter summary.
