@@ -8,6 +8,7 @@ All structured output is printed as JSON to stdout; logs go to stderr.
 import argparse
 import base64
 import binascii
+import contextlib
 import json
 import os
 import random
@@ -51,7 +52,9 @@ def output_error(error: str, error_code: str, retryable: bool) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Edit an image using the OpenAI image edit API.")
-    parser.add_argument("--image-path", required=True, help="Path to the source image file")
+    parser.add_argument("--image-paths", "--image-path",
+                        nargs="+", required=True, dest="image_paths",
+                        help="Path(s) to source image file(s). First is the target; remaining are references. Up to 16.")
     parser.add_argument("--prompt", required=True, help="Text description of the desired edit")
     parser.add_argument("--output-path", required=True, help="Where to save the edited image")
     parser.add_argument("--model", default="gpt-image-1.5", help="Model identifier")
@@ -138,8 +141,10 @@ def call_api(client: openai.OpenAI, args: argparse.Namespace) -> dict[str, Any]:
 
     while True:
         try:
-            with open(args.image_path, "rb") as img_file:
-                response = client.images.edit(**build_edit_request_kwargs(args, img_file))
+            with contextlib.ExitStack() as stack:
+                files = [stack.enter_context(open(p, "rb")) for p in args.image_paths]
+                image_arg = files[0] if len(files) == 1 else files
+                response = client.images.edit(**build_edit_request_kwargs(args, image_arg))
 
             if not response.data:
                 return {"error": "API returned empty data array", "error_code": "API_ERROR", "retryable": True}
@@ -209,12 +214,17 @@ def main() -> None:
         output_error("OPENAI_API_KEY not found in environment or .env file", "INVALID_API_KEY", False)
         sys.exit(1)
 
-    validation_err = validate_image(args.image_path)
-    if validation_err:
-        output_error(**validation_err)
+    if len(args.image_paths) > 16:
+        output_error("Too many images: max 16 supported", "VALIDATION_ERROR", False)
         sys.exit(1)
 
-    log(f"Editing image: {args.image_path}")
+    for path in args.image_paths:
+        validation_err = validate_image(path)
+        if validation_err:
+            output_error(**validation_err)
+            sys.exit(1)
+
+    log(f"Editing image(s): {', '.join(args.image_paths)}")
     log(f"Prompt: {args.prompt}")
     log(f"Model: {args.model}, size: {args.size}, quality: {args.quality}")
 

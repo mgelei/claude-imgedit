@@ -289,6 +289,10 @@ The following questions from the original plan have been resolved via API resear
 1. Add packaging guidance for `.env.example`, personal-use `.env`, and zip layout.
 2. Keep the initial implementation focused on Claude Web only.
 
+## Resolved Decisions (Issue #12)
+
+7. **Multiple images / reference images**: The `image` parameter accepts up to 16 images as a list of file handles. All images go into the same `image` field. The prompt text distinguishes target vs. reference images (e.g., "Apply the style of the second image to the first"). The `--image-path` CLI argument was updated to `--image-paths` (with `--image-path` as a backward-compatible alias) using `nargs="+"`. `contextlib.ExitStack` manages multiple file handles cleanly.
+
 ## Implementation Todos
 
 1. **Create SKILL.md** — Write the main skill file with frontmatter and step-by-step instructions for Claude
