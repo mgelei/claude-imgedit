@@ -20,8 +20,8 @@ The request body must be sent as `multipart/form-data` (required for file upload
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `image` | file | **Yes** | Source image(s) to edit. Accepts PNG, JPEG, or WebP. Max 50 MB per image. Up to 16 images. Pass a single file or a list of files — the prompt should describe which image is which (e.g., "Apply the style of the second image to the first"). |
-| `prompt` | string | **Yes** | A text description of the desired edit. Max 32,000 characters. |
+| `image` | file | **Yes** | Source image(s) to edit. Accepts PNG, JPEG, or WebP. Max 50 MB per image. Up to 16 images. Pass a single file or a list of files. The model resolves each image's role from the user's prompt; the caller should not inject numbered or target/reference wording. |
+| `prompt` | string | **Yes** | A text description of the desired edit. Max 32,000 characters. Callers should preserve the user's wording rather than paraphrasing or relabeling it. |
 | `model` | string | No | Model to use. One of `gpt-image-1.5` (default), `gpt-image-1`, `gpt-image-1-mini`, `chatgpt-image-latest`. |
 | `mask` | file | No | PNG image used as a mask. Transparent (alpha = 0) areas indicate where the image should be edited. Must be less than 4 MB and have the same dimensions as the input image. |
 | `size` | string | No | Output size. One of `1024x1024`, `1536x1024` (landscape), `1024x1536` (portrait), or `auto` (default). |
@@ -61,6 +61,14 @@ When `response_format` is `url`:
   ]
 }
 ```
+
+### Skill CLI Prompt Transport
+
+The OpenAI API still receives a single `prompt` string. For this repository's local script:
+
+- Use `--prompt` for short, shell-safe prompts.
+- Use `--prompt-file` for JSON, multi-line, or quote-heavy prompts that should be forwarded exactly.
+- Do not rewrite prompts with invented labels like "first image", "second image", "target", or "reference" unless the user already used those words.
 
 ---
 
