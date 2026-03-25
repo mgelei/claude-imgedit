@@ -28,10 +28,11 @@ This skill connects Claude to OpenAI's `gpt-image-1.5` image editing API. When y
    ```
    OPENAI_API_KEY=sk-your-key-here
    ```
-3. Zip the project folder:
+3. Build the skill zip:
    ```bash
-   zip -r claude-imgedit.zip claude-imgedit/ -x "claude-imgedit/.git/*" "claude-imgedit/.claude/*" "claude-imgedit/PLAN.md"
+   bash scripts/build.sh
    ```
+   This produces a lean `claude-imgedit.zip` containing only the files the skill needs. If a `.env` file is present, it is included automatically.
 4. Go to **Claude Web → Settings → Customize → Skills**
 5. Upload `claude-imgedit.zip`
 
@@ -78,7 +79,8 @@ Claude will use sensible defaults, but you can request specific settings:
 claude-imgedit/
 ├── SKILL.md                  # Skill instructions for Claude
 ├── scripts/
-│   └── edit_image.py         # Core Python script for OpenAI API calls
+│   ├── edit_image.py         # Core Python script for OpenAI API calls
+│   └── build.sh              # Build script — produces lean skill zip
 ├── references/
 │   └── REFERENCE.md          # Detailed API docs & troubleshooting
 ├── assets/
