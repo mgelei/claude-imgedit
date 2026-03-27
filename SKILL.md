@@ -158,6 +158,7 @@ If the prompt is JSON, multi-line, or contains shell-sensitive characters, write
 | `--model`   | `gpt-image-1.5`  | Model name to use for the edit                  |
 | `--size`    | `auto`            | `auto`, `1024x1024`, `1536x1024`, `1024x1536`  |
 | `--quality` | `auto`            | `auto`, `low`, `medium`, `high`                 |
+| `-n`        | `1`               | Number of images to generate (`1`–`4`)          |
 
 > **Important:** Do **not** pass `--model` unless the user explicitly asks to use a specific model. Omit the argument entirely so the script's default (`gpt-image-1.5`) is used.
 
@@ -224,13 +225,25 @@ python scripts/edit_image.py \
   --quality high
 ```
 
+Generating multiple image variants (up to 4):
+
+```bash
+python scripts/edit_image.py \
+  --image-paths /tmp/input_image.png \
+  --prompt "make it look like a watercolor painting" \
+  --output-path /tmp/edited_image.png \
+  -n 3
+```
+
+When `-n` is greater than 1, output files are saved with numbered suffixes: `edited_image_1.png`, `edited_image_2.png`, `edited_image_3.png`.
+
 Wait for the script to complete. It may take 10–30 seconds depending on the image and the complexity of the edit.
 
 ### Step 5: Parse the Output
 
 The script writes JSON to **stdout**. Parse the output and check the `status` field.
 
-**Success response:**
+**Success response (single image):**
 
 ```json
 {
@@ -238,6 +251,21 @@ The script writes JSON to **stdout**. Parse the output and check the `status` fi
   "output_path": "/tmp/edited_image.png",
   "model_used": "gpt-image-1.5",
   "file_size_bytes": 123456
+}
+```
+
+**Success response (multiple images, when `-n` > 1):**
+
+```json
+{
+  "status": "success",
+  "model_used": "gpt-image-1.5",
+  "output_paths": [
+    "/tmp/edited_image_1.png",
+    "/tmp/edited_image_2.png",
+    "/tmp/edited_image_3.png"
+  ],
+  "file_sizes_bytes": [123456, 124000, 122800]
 }
 ```
 
@@ -256,9 +284,9 @@ The script writes JSON to **stdout**. Parse the output and check the `status` fi
 
 If `status` is `"success"`:
 
-1. Read the image file at the `output_path`.
-2. Display it inline to the user in the conversation.
-3. Briefly describe what was changed (e.g., "Here's your image with the background removed.").
+1. Read the image file(s) at the `output_path` (single image) or `output_paths` (multiple images).
+2. Display them inline to the user in the conversation.
+3. Briefly describe what was changed (e.g., "Here's your image with the background removed."). When multiple images were generated, present all of them so the user can compare and pick their favorite.
 
 ### Step 7: Handle Errors (on failure)
 
@@ -315,6 +343,7 @@ Share these tips with the user if they seem unsure about how to phrase their req
 - **Quality setting:** Use `high` for final outputs and `low` or `medium` for quick drafts or iterations.
 - **Size setting:** Use `auto` to preserve the original aspect ratio, or choose a specific size if you need exact dimensions.
 - **Multiple images:** Keep the user's wording intact and pass the uploaded images through to the API. Do not add image numbers or role labels; the model resolves that from the prompt.
+- **Multiple variants:** Use `-n 2` or `-n 3` (up to 4) to generate several versions of the same edit. This is useful when the user wants to pick from options. The script enforces a maximum of 4 to protect API credits.
 - **JSON or long prompts:** Use `--prompt-file` and preserve the prompt text exactly. Do not compress it into a shorter summary.
 
 ---
