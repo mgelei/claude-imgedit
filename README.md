@@ -72,6 +72,7 @@ Claude will use sensible defaults, but you can request specific settings:
 - **Model**: `gpt-image-1.5` (default), `gpt-image-1`
 - **Quality**: `auto` (default), `low`, `medium`, `high`
 - **Size**: `auto` (default), `1024x1024`, `1536x1024`, `1024x1536`
+- **Count (`-n`)**: `1` (default), up to `4` — generate multiple image variants in one call
 
 ## Project Structure
 

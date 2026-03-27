@@ -30,7 +30,7 @@ The request body must be sent as `multipart/form-data` (required for file upload
 | `background` | string | No | Background handling. One of `transparent`, `opaque`, or `auto`. Transparent backgrounds only work with `png` or `webp` output formats. |
 | `input_fidelity` | string | No | How closely the output should match the input image. `high` preserves more of the original; `low` (default) gives the model more creative freedom. |
 | `output_compression` | integer | No | Compression level, 0–100. Only applies to `jpeg` and `webp` output formats. Lower values = smaller files but lower quality. |
-| `n` | integer | No | Number of images to generate. Range: 1–10. Default: 1. |
+| `n` | integer | No | Number of images to generate. Range: 1–10. Default: 1. **Note:** The skill script enforces a maximum of 4 to protect API credits. |
 | `moderation` | string | No | Content moderation level. `auto` (default) applies standard filtering. `low` reduces filtering sensitivity. |
 | `response_format` | string | No | Format of the returned image data. `b64_json` (default for gpt-image models) returns base64-encoded image data. `url` returns a temporary URL. |
 

@@ -22,6 +22,7 @@ from openai import APIError, APITimeoutError, AuthenticationError, RateLimitErro
 
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+MAX_IMAGE_COUNT = 4  # Safety cap to protect API credits (API allows up to 10)
 MAX_RATE_LIMIT_RETRIES = 3
 MAX_SERVER_ERROR_RETRIES = 2
 CLIENT_TIMEOUT = 120.0
@@ -32,13 +33,22 @@ def log(msg: str) -> None:
     print(f"{LOG_PREFIX} {msg}", file=sys.stderr)
 
 
-def output_success(output_path: str, model_used: str, file_size_bytes: int) -> None:
-    print(json.dumps({
+def output_success(
+    output_paths: list[str],
+    model_used: str,
+    file_sizes: list[int],
+) -> None:
+    result: dict[str, Any] = {
         "status": "success",
-        "output_path": output_path,
         "model_used": model_used,
-        "file_size_bytes": file_size_bytes,
-    }, indent=2))
+    }
+    if len(output_paths) == 1:
+        result["output_path"] = output_paths[0]
+        result["file_size_bytes"] = file_sizes[0]
+    else:
+        result["output_paths"] = output_paths
+        result["file_sizes_bytes"] = file_sizes
+    print(json.dumps(result, indent=2))
 
 
 def output_error(error: str, error_code: str, retryable: bool) -> None:
@@ -66,6 +76,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quality", default="auto",
                         choices=["auto", "low", "medium", "high"],
                         help="Output image quality")
+    parser.add_argument("-n", "--n", type=int, default=1, dest="n",
+                        help="Number of images to generate (1-4, default: 1)")
     return parser
 
 
@@ -165,7 +177,7 @@ def resolve_prompt(args: argparse.Namespace) -> tuple[Optional[str], Optional[di
 
 
 def build_edit_request_kwargs(args: argparse.Namespace, image_file: Any, prompt: str) -> dict[str, Any]:
-    return {
+    kwargs: dict[str, Any] = {
         "model": args.model,
         "image": image_file,
         "prompt": prompt,
@@ -175,6 +187,9 @@ def build_edit_request_kwargs(args: argparse.Namespace, image_file: Any, prompt:
             "moderation": "low",
         },
     }
+    if args.n > 1:
+        kwargs["n"] = args.n
+    return kwargs
 
 
 def call_api(client: openai.OpenAI, args: argparse.Namespace, prompt: str) -> dict[str, Any]:
@@ -191,23 +206,37 @@ def call_api(client: openai.OpenAI, args: argparse.Namespace, prompt: str) -> di
             if not response.data:
                 return {"error": "API returned empty data array", "error_code": "API_ERROR", "retryable": True}
 
-            b64_data = response.data[0].b64_json
-            if not b64_data:
-                return {"error": "API returned no image data", "error_code": "API_ERROR", "retryable": True}
+            output_base = Path(args.output_path)
+            output_base.parent.mkdir(parents=True, exist_ok=True)
+            saved_paths: list[str] = []
+            saved_sizes: list[int] = []
 
-            try:
-                image_bytes = base64.b64decode(b64_data)
-            except binascii.Error as exc:
-                return {"error": f"Failed to decode image data: {exc}", "error_code": "API_ERROR", "retryable": False}
+            for idx, item in enumerate(response.data):
+                b64_data = item.b64_json
+                if not b64_data:
+                    return {"error": f"API returned no image data for result {idx + 1}",
+                            "error_code": "API_ERROR", "retryable": True}
 
-            output = Path(args.output_path)
-            output.parent.mkdir(parents=True, exist_ok=True)
-            with open(output, "wb") as out_file:
-                out_file.write(image_bytes)
+                try:
+                    image_bytes = base64.b64decode(b64_data)
+                except binascii.Error as exc:
+                    return {"error": f"Failed to decode image data for result {idx + 1}: {exc}",
+                            "error_code": "API_ERROR", "retryable": False}
 
-            file_size = output.stat().st_size
-            log(f"Wrote {file_size} bytes to {output}")
-            return {"status": "success", "output_path": str(output), "file_size_bytes": file_size}
+                if len(response.data) == 1:
+                    out_path = output_base
+                else:
+                    out_path = output_base.with_stem(f"{output_base.stem}_{idx + 1}")
+
+                with open(out_path, "wb") as out_file:
+                    out_file.write(image_bytes)
+
+                file_size = out_path.stat().st_size
+                log(f"Wrote {file_size} bytes to {out_path}")
+                saved_paths.append(str(out_path))
+                saved_sizes.append(file_size)
+
+            return {"status": "success", "output_paths": saved_paths, "file_sizes": saved_sizes}
 
         except AuthenticationError:
             return {"error": "Invalid API key", "error_code": "INVALID_API_KEY", "retryable": False}
@@ -260,6 +289,14 @@ def main() -> None:
         output_error("Too many images: max 16 supported", "VALIDATION_ERROR", False)
         sys.exit(1)
 
+    if args.n < 1 or args.n > MAX_IMAGE_COUNT:
+        output_error(
+            f"Invalid value for --n: {args.n}. Must be between 1 and {MAX_IMAGE_COUNT}",
+            "VALIDATION_ERROR",
+            False,
+        )
+        sys.exit(1)
+
     for path in args.image_paths:
         validation_err = validate_image(path)
         if validation_err:
@@ -273,7 +310,7 @@ def main() -> None:
 
     log(f"Editing image(s): {', '.join(args.image_paths)}")
     log(f"Prompt: {prompt}")
-    log(f"Model: {args.model}, size: {args.size}, quality: {args.quality}")
+    log(f"Model: {args.model}, size: {args.size}, quality: {args.quality}, n: {args.n}")
 
     client = openai.OpenAI(api_key=api_key, timeout=CLIENT_TIMEOUT)
 
@@ -284,7 +321,7 @@ def main() -> None:
         sys.exit(1)
 
     if result.get("status") == "success":
-        output_success(result["output_path"], args.model, result["file_size_bytes"])
+        output_success(result["output_paths"], args.model, result["file_sizes"])
     else:
         output_error(result["error"], result["error_code"], result["retryable"])
         sys.exit(1)
